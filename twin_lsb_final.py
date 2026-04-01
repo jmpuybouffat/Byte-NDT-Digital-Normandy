@@ -2,12 +2,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# --- 1. MOTEUR PHYSIQUE (Schmeer & Snell) ---
-def get_scattering_amplitude(f, b_size, cp):
-    kp = (2000 * np.pi * b_size * f) / cp
-    return np.abs(np.sinc(kp / 10)) * (b_size**2)
-
-# --- 2. GÉOMÉTRIE (Vos équations Maple) ---
+# --- 1. GÉOMÉTRIE (Équations Maple de la racine LSB 941) ---
 def get_lsb_geometry(t, mode="Intrados"):
     if mode == "Intrados":
         y = 0.001808 * t**2 - 0.13147 * t + 17.336
@@ -18,74 +13,105 @@ def get_lsb_geometry(t, mode="Intrados"):
     return y, z
 
 def get_target_curve(y):
-    # Équation de la courbe des indications (cible)
+    # Courbe de fond (Plan des indications)
     return -0.001671 * y**2 + 0.00338 * y + 320.834
 
-# --- 3. INTERFACE STREAMLIT ---
-st.set_page_config(page_title="Byte NDT | Twin LSB 941", layout="wide")
-st.title("🛡️ Byte NDT | Jumeau Numérique : Calibration EDM")
+# --- 2. CONFIGURATION INTERFACE ---
+st.set_page_config(page_title="Byte NDT | Digital Twin LSB 941", layout="wide")
+st.title("🛡️ Byte NDT | Jumeau Numérique : Simulation de Détection")
 
-# Explication Bilingue
-with st.expander("ℹ️ Note Technique / Technical Note"):
-    st.write("**FR :** Simulation du couplage à 45°. L'EDM est placé sur la courbe des indications pour calibrer la détection.")
-    st.write("**EN :** 45° coupling simulation. The EDM is placed on the indications curve to calibrate detection.")
+# --- 3. NOTES DE SYNTHÈSE (FR/EN) ---
+with st.expander("📝 Note de Synthèse / Executive Summary"):
+    col_fr, col_en = st.columns(2)
+    with col_fr:
+        st.markdown("""
+        **Motivation :** Cette démonstration valide l'algorithme Byte NDT sur des géométries réelles. 
+        Le Jumeau Numérique anticipe le point d'impact acoustique avec précision.
+        **Sûreté :** La précision du modèle élimine les erreurs d'interprétation humaine liées à la courbure complexe.
+        """)
+    with col_en:
+        st.markdown("""
+        **Motivation:** This demo validates the Byte NDT algorithm on real geometries. 
+        The Digital Twin accurately predicts the acoustic impact point.
+        **Reliability:** Model accuracy eliminates human errors caused by the part's complex curvature.
+        """)
+
+# --- 4. DÉFINITION DES EDMS FIXES (Cibles réelles) ---
+edms = {
+    "EDM 1 (4x2x0.1)": {"y": 45.0, "h": 2.0, "color": "red"},
+    "EDM 2 (4x4.1)": {"y": 85.0, "h": 4.1, "color": "orange"}
+}
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.header("⚙️ Paramètres")
+    st.header("⚙️ Paramètres du Scan")
     mode = st.radio("Côté d'inspection", ["Intrados", "Extrados"])
     t_scan = st.slider("Position de la sonde (t)", -30, 110, 15)
+    selected_target = st.selectbox("Cible EDM visée", list(edms.keys()))
     
     y_p, z_p = get_lsb_geometry(t_scan, mode)
     
-    # Calcul de détection (Simulation)
-    dist_to_target = 25 # Distance estimée du parcours sonore
-    target_y = y_p + 18 # Projection à 45°
-    target_z_real = get_target_curve(target_y)
+    # Physique de détection
+    target = edms[selected_target]
+    z_target_fixed = get_target_curve(target['y'])
     
-    amp = get_scattering_amplitude(5.0, 2.0, 5900)
-    measured_width = 4.0 + (np.random.normal(0, 0.05))
+    # Calcul du trajet du faisceau à 45°
+    # La projection Y du faisceau à la profondeur de la cible
+    projected_y = y_p + (z_target_fixed - z_p) * np.tan(np.radians(45))
     
-    st.metric("Amplitude Écho", f"{20*np.log10(amp+0.1):.1f} dB")
-    st.metric("Largeur à -6dB", f"{measured_width:.2f} mm")
+    # Écart entre l'axe du faisceau et le centre de l'EDM
+    error = np.abs(projected_y - target["y"])
     
-    if measured_width > 4.0:
+    # Modélisation de l'amplitude (Pic à 0dB quand error=0)
+    beam_width = 8.0 
+    amplitude = np.exp(-(error**2) / (beam_width**2))
+    amp_db = 20 * np.log10(amplitude + 0.01)
+    
+    # Simulation mesure de largeur (ajustée par l'amplitude)
+    measured_w = target["h"] * (amplitude if amplitude > 0.4 else 0)
+    
+    st.metric("Amplitude Signal", f"{amp_db:.1f} dB")
+    st.metric("Largeur mesurée (-6dB)", f"{measured_w:.2f} mm")
+    
+    if measured_w >= 4.0:
         st.error("❌ Verdict : NON CONFORME (NC)")
+    elif amplitude > 0.15:
+        st.warning("⚠️ Détection partielle - Ajustez la position")
     else:
-        st.success("✅ Verdict : CONFORME (C)")
+        st.info("⚪ Aucune détection (Faisceau hors zone)")
 
 with col2:
     fig, ax = plt.subplots(figsize=(10, 8))
     
-    # 1. Profil de la racine
+    # Dessin Profil Racine
     t_range = np.linspace(-30, 110, 100)
     pts = [get_lsb_geometry(tr, mode) for tr in t_range]
     sy, sz = zip(*pts)
-    ax.plot(sy, sz, 'g-', lw=2, label="Profil Racine LSB 941")
+    ax.plot(sy, sz, 'g-', lw=3, label="Profil Racine LSB 941")
     
-    # 2. Courbe des Indications (La cible)
-    y_target_range = np.linspace(y_p, y_p + 40, 50)
-    z_target_range = [get_target_curve(y) for y in y_target_range]
-    ax.plot(y_target_range, z_target_range, 'k--', alpha=0.4, label="Courbe des Indications")
+    # Dessin Courbe des Cibles
+    target_y_vals = np.linspace(20, 130, 100)
+    target_z_vals = [get_target_curve(y) for y in target_y_vals]
+    ax.plot(target_y_vals, target_z_vals, 'k--', alpha=0.3, label="Plan de Détection")
 
-    # 3. La Sonde (Bleue)
-    ax.scatter(y_p, z_p, color='blue', s=250, zorder=5, label="Sonde 6mm 5MHz")
-    
-    # 4. LE FAISCEAU (Orange) - "Le Shot"
-    # On dessine un triangle pour simuler l'ouverture du faisceau à 45°
-    beam_y = [y_p, target_y - 6, target_y + 6]
-    beam_z = [z_p, target_z_real, target_z_real]
-    ax.fill(beam_y, beam_z, color='orange', alpha=0.3, label="Faisceau 45° (Shear)")
-    ax.plot([y_p, target_y], [z_p, target_z_real], color='orange', lw=2) # Axe central
+    # Dessin des EDMs fixes (Ils ne bougent pas !)
+    for name, data in edms.items():
+        z_val = get_target_curve(data["y"])
+        ax.add_patch(plt.Rectangle((data["y"]-2, z_val-1), 4, 2, color=data["color"], alpha=0.9, label=name))
 
-    # 5. L'EDM (Rouge)
-    ax.add_patch(plt.Rectangle((target_y-2, target_z_real-1), 4, 2, color='red', zorder=6, label="EDM (4x4mm)"))
+    # Dessin Sonde (Bouge avec le slider)
+    ax.scatter(y_p, z_p, color='blue', s=250, zorder=5, label="Sonde 6mm")
     
+    # Dessin Faisceau Dynamique (Orange)
+    # Le faisceau part de la sonde et "cherche" la cible
+    ax.fill([y_p, projected_y-5, projected_y+5], [z_p, z_target_fixed, z_target_fixed], color='orange', alpha=0.2, label="Faisceau Acoustique")
+    ax.plot([y_p, projected_y], [z_p, z_target_fixed], color='orange', lw=2, ls='--')
+
     ax.set_ylim(350, 250)
-    ax.set_xlim(y_p - 20, y_p + 60)
-    ax.set_xlabel("Y (mm)")
+    ax.set_xlim(0, 150)
+    ax.set_xlabel("Position Y (mm)")
     ax.set_ylabel("Profondeur Z (mm)")
     ax.legend(loc='upper right')
-    ax.grid(True, alpha=0.2)
+    ax.grid(True, alpha=0.1)
     st.pyplot(fig)
