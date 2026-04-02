@@ -7,8 +7,8 @@ def get_lsb_geometry(t, mode="Intrados"):
     if mode == "Intrados":
         y = 0.001808 * t**2 - 0.13147 * t + 17.336
         z = -0.003862 * t**2 + 0.13915 * t + 276.437
-    else: # EXTRADOS
-        y = -0.003609 * t**2 + 0.39014 * t + 19.703
+    else: # EXTRADOS - Inversion et recalage
+        y = -(-0.003609 * t**2 + 0.39014 * t + 19.703) + 70 
         z = -0.005488 * t**2 + 0.40635 * t + 322.563
     return y, z
 
@@ -16,82 +16,74 @@ def get_target_curve(y, mode="Intrados"):
     if mode == "Intrados":
         return -0.001671 * y**2 + 0.00338 * y + 320.834
     else: # EXTRADOS
-        return -0.002120 * y**2 + 0.01039 * y + 275.591
+        return -0.002120 * y**2 + 0.01039 * y + 338.591
 
 # --- 2. CONFIGURATION INTERFACE ---
-st.set_page_config(page_title="Byte NDT | Digital Twin LSB 941", layout="wide")
-st.title("🛡️ Byte NDT | Jumeau Numérique : Géométrie & Champ de Pression")
+st.set_page_config(page_title="Byte NDT | Digital Twin Precision", layout="wide")
+st.title("🛡️ Byte NDT | Twin LSB 941 : Cohérence Géométrique")
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.header("⚙️ Contrôle Scan")
+    st.header("⚙️ Paramètres")
     mode = st.radio("Côté d'inspection", ["Intrados", "Extrados"])
-    t_scan = st.slider("Position Sonde (t)", -50, 150, 20)
+    t_scan = st.slider("Position Barrette PAUT (t)", -50, 150, 10)
+    
+    # Angle de tir (Préparation Sectoriel)
+    angle_deg = st.slider("Angle de réfraction (refracted)", 35, 75, 45)
     
     y_p, z_p = get_lsb_geometry(t_scan, mode)
     
-    # Cibles EDM fixes ajustées pour être dans la course du scan
-    target_y = 65.0 if mode == "Intrados" else 50.0
+    # Position de l'EDM (Cible fixe)
+    target_y = 65.0 if mode == "Intrados" else 25.0
     target_z = get_target_curve(target_y, mode)
     
-    # Calcul intersection à 45°
-    projected_y = y_p + (target_z - z_p) * np.tan(np.radians(45))
+    # Calcul de projection avec l'angle dynamique
+    projected_y = y_p + (target_z - z_p) * np.tan(np.radians(angle_deg))
     error = np.abs(projected_y - target_y)
-    
-    # Modèle d'amplitude (Champ de pression Gaussien)
-    amplitude = np.exp(-(error**2) / 120) 
-    amp_db = 20 * np.log10(amplitude + 0.01)
-    
-    st.metric("Amplitude Signal", f"{amp_db:.1f} dB")
-    
-    if amplitude > 0.70: # Seuil -3dB approx
-        st.error(f"🚨 NC : DÉTECTION CRITIQUE (-3dB zone)")
-    elif amplitude > 0.50: # Seuil -6dB
-        st.warning("⚠️ SIGNAL ALERTE (-6dB zone)")
-    elif amplitude > 0.25: # Seuil -12dB
-        st.info("⚪ Écho de structure détecté (-12dB)")
+    amplitude = np.exp(-(error**2) / 100) # Champ de pression
+
+    st.metric("Amplitude", f"{20*np.log10(amplitude+0.01):.1f} dB")
+    if amplitude > 0.6:
+        st.error("🚨 DÉTECTION EDM")
 
 with col2:
-    fig, ax = plt.subplots(figsize=(10, 7))
+    fig, ax = plt.subplots(figsize=(12, 10))
     
-    # 1. Surface (EN HAUT)
-    t_range = np.linspace(-50, 150, 200)
+    # 1. Tracé des surfaces
+    t_range = np.linspace(-50, 150, 300)
     pts = [get_lsb_geometry(tr, mode) for tr in t_range]
     sy, sz = zip(*pts)
-    ax.plot(sy, sz, 'g-', lw=4, label=f"Surface PA ({mode})")
+    ax.plot(sy, sz, 'g-', lw=4, label="Surface d'entrée (Profil Aube)")
     
-    # 2. Courbe des Indications (EN BAS)
-    ty_range = np.linspace(min(sy), max(sy)+50, 100)
+    ty_range = np.linspace(min(sy)-10, max(sy)+40, 100)
     tz_range = [get_target_curve(ty, mode) for ty in ty_range]
-    ax.plot(ty_range, tz_range, 'k--', alpha=0.5, label="Courbe de fond (Indications)")
+    ax.plot(ty_range, tz_range, 'k--', alpha=0.4, label="Ligne des EDM (Fond)")
 
-    # 3. L'EDM Fixe
-    ax.add_patch(plt.Rectangle((target_y-2, target_z-1.5), 4, 3, color='black', alpha=0.8, zorder=5, label="EDM 4x4"))
+    # 2. Dessin du Sabot (Wedge) & Sonde PAUT
+    # On dessine un bloc pour le wedge (angle fixe pour l'instant)
+    ax.add_patch(plt.Rectangle((y_p-12, z_p-8), 24, 8, color='gray', alpha=0.4, label="Wedge (Sabot)"))
+    ax.add_patch(plt.Rectangle((y_p-10, z_p-10), 20, 3, color='blue', alpha=0.9, label="Barrette PAUT"))
 
-    # 4. Faisceau et Champ de Pression
+    # 3. Faisceau (Champ de pression dynamique)
     b_color = "red" if amplitude > 0.5 else "orange"
-    # Faisceau principal
-    ax.fill([y_p, projected_y-8, projected_y+8], [z_p, target_z, target_z], color=b_color, alpha=0.2)
+    ax.fill([y_p, projected_y-10, projected_y+10], [z_p, target_z, target_z], color=b_color, alpha=0.25)
     ax.plot([y_p, projected_y], [z_p, target_z], color=b_color, lw=2, ls='--')
 
-    # Simulation de la tache de pression (Gradient -3, -6, -12 dB)
-    if amplitude > 0.1:
-        # Zone -12dB (Large et claire)
-        ax.add_artist(plt.Circle((target_y, target_z), 12 * amplitude, color='red', alpha=0.15))
-        # Zone -6dB (Moyenne)
-        ax.add_artist(plt.Circle((target_y, target_z), 7 * amplitude, color='red', alpha=0.3))
-        # Zone -3dB (Cœur du faisceau)
-        ax.add_artist(plt.Circle((target_y, target_z), 3 * amplitude, color='red', alpha=0.6))
-    
-    # Sonde
-    ax.scatter(y_p, z_p, color='blue', s=300, zorder=10, label="Sonde")
+    # 4. EDM et Tache de réponse (Niveaux dB)
+    ax.add_patch(plt.Rectangle((target_y-2, target_z-1.5), 4, 3, color='black', zorder=5))
+    if amplitude > 0.15:
+        # Zone -6dB
+        ax.add_artist(plt.Circle((target_y, target_z), 8*amplitude, color='red', alpha=0.3))
+        # Zone -3dB
+        ax.add_artist(plt.Circle((target_y, target_z), 4*amplitude, color='red', alpha=0.6))
 
-    # --- REGLAGE DU FORMAT GÉOMÉTRIQUE ---
-    # On force l'axe Z à montrer la surface en haut et le fond en bas
-    ax.set_ylim(max(tz_range)+15, min(sz)-15) 
-    ax.set_xlabel("Axe Y - Longueur (mm)")
-    ax.set_ylabel("Axe Z - Profondeur (mm)")
+    # --- CONTRAINTES D'AFFICHAGE ---
+    ax.set_aspect('equal', adjustable='box') # CRITIQUE : Échelle 1:1
+    ax.set_ylim(max(tz_range)+15, min(sz)-20) 
+    ax.set_xlabel("Y (mm)")
+    ax.set_ylabel("Z (mm)")
+    ax.grid(True, linestyle=':', alpha=0.5)
     ax.legend(loc='upper right')
-    ax.grid(True, alpha=0.2)
+    
     st.pyplot(fig)
