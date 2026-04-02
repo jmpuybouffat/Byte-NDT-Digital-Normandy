@@ -89,3 +89,8 @@ with col2:
     ax.grid(True, linestyle=':', alpha=0.4)
     
     st.pyplot(fig)
+
+# À ajouter à la toute fin de votre fichier twin_lsb_final.py si vous le souhaitez
+st.sidebar.markdown("---")
+st.sidebar.write("🔗 **Accès direct :**")
+st.sidebar.code("https://byte-ndt-digital-normandy-upuqs4f8h7mxbjr3pc75qo.streamlit.app/")
