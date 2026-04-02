@@ -2,15 +2,15 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 
-# 1. CONFIGURATION (Stable & Large)
+# --- 1. CONFIGURATION ---
 st.set_page_config(page_title="Byte NDT | Console", layout="wide")
 
-# 2. GÉOMÉTRIE (Sûre)
+# --- 2. GÉOMÉTRIE (Version Stable) ---
 def get_lsb_geometry(t, mode="Intrados"):
     if mode == "Intrados":
         y = 0.001808 * t**2 - 0.13147 * t + 17.336
         z = -0.003862 * t**2 + 0.13915 * t + 276.437
-    else: # EXTRADOS recalé
+    else:
         y = -(-0.003609 * t**2 + 0.39014 * t + 19.703) + 110 
         z = -0.005488 * t**2 + 0.40635 * t + 322.563
     return y, z
@@ -19,21 +19,43 @@ def get_target_curve(y, mode="Intrados"):
     if mode == "Intrados": return -0.001671 * y**2 + 0.00338 * y + 320.834
     else: return -0.002120 * y**2 + 0.01039 * y + 342.0
 
-# 3. INTERFACE
-st.title("🛡️ Byte NDT | Console de Démonstration")
+# --- 3. LOGIQUE BILINGUE ---
+st.sidebar.title("🌐 Language / Langue")
+lang = st.sidebar.radio("Select / Sélection", ["Français", "English"], horizontal=True)
 
-# SIDEBAR : LE PENSE-BÊTE URL
-st.sidebar.header("🔗 PENSE-BÊTE / APP URL")
-st.sidebar.code("https://byte-ndt-digital-normandy-upuqs4f8h7mxbjr3pc75qo.streamlit.app/")
+texts = {
+    "Français": {
+        "title": "🛡️ Byte NDT | Console de Démonstration",
+        "intro": "Ce Jumeau Numérique (Digital Twin) utilise les équations géométriques réelles de la racine LSB 941 pour optimiser les positions de scan PAUT.",
+        "justification": "### Pourquoi ce modèle ?\n1. **Optimisation des positions** : Il permet de définir mathématiquement le point d'entrée optimal pour que le faisceau à 45°/55° touche l'EDM au coeur de la zone critique.\n2. **Validation du faisceau** : Le calcul intègre la réfraction et la divergence (tache rouge) pour garantir que l'énergie acoustique est maximale sur le défaut.",
+        "mode": "Côté d'inspection", "pos": "Position Sonde (t)", "angle": "Angle de tir (°)",
+        "amp": "Amplitude (dB)", "det": "🚨 EDM DÉTECTÉ", "search": "⚪ Recherche...",
+        "url_msg": "🔗 Adresse de l'application :"
+    },
+    "English": {
+        "title": "🛡️ Byte NDT | Demonstration Console",
+        "intro": "This Digital Twin uses real geometric equations of the LSB 941 root to optimize PAUT scan positions.",
+        "justification": "### Why this model?\n1. **Position Optimization**: It mathematically defines the optimal entry point so that the 45°/55° beam hits the EDM at the heart of the critical zone.\n2. **Beam Validation**: The calculation integrates refraction and divergence (red spot) to ensure acoustic energy is maximized on the defect.",
+        "mode": "Inspection Side", "pos": "Probe Position (t)", "angle": "Firing Angle (°)",
+        "amp": "Amplitude (dB)", "det": "🚨 EDM DETECTED", "search": "⚪ Scanning...",
+        "url_msg": "🔗 Application Address:"
+    }
+}[lang]
+
+# --- 4. INTERFACE ---
+st.title(texts["title"])
+st.info(texts["intro"])
+
 st.sidebar.markdown("---")
+st.sidebar.write(f"**{texts['url_msg']}**")
+st.sidebar.code("https://byte-ndt-digital-normandy-upuqs4f8h7mxbjr3pc75qo.streamlit.app/")
 
 col1, col2 = st.columns([1, 2])
 
 with col1:
-    lang = st.radio("Langue", ["FR", "EN"], horizontal=True)
-    mode = st.radio("Côté", ["Intrados", "Extrados"], horizontal=True)
-    t_scan = st.slider("Position (t)", -40, 140, 50)
-    angle_deg = st.slider("Angle (°)", 30, 70, 45)
+    mode = st.radio(texts["mode"], ["Intrados", "Extrados"], horizontal=True)
+    t_scan = st.slider(texts["pos"], -40, 140, 50)
+    angle_deg = st.slider(texts["angle"], 30, 70, 45 if mode == "Intrados" else 55)
     
     y_p, z_p = get_lsb_geometry(t_scan, mode)
     target_y = 65.0 if mode == "Intrados" else 40.0
@@ -44,8 +66,12 @@ with col1:
     projected_y = y_p + dir_f * (target_z - z_p) * np.tan(np.radians(angle_deg))
     amplitude = np.exp(-(np.abs(projected_y - target_y)**2) / 100)
     
-    st.metric("Signal (dB)", f"{20*np.log10(amplitude+0.001):.1f}")
-    if amplitude > 0.6: st.error("🚨 EDM DÉTECTÉ / DETECTED")
+    st.metric(texts["amp"], f"{20*np.log10(amplitude+0.001):.1f}")
+    if amplitude > 0.6: st.error(texts["det"])
+    else: st.write(texts["search"])
+    
+    st.markdown("---")
+    st.markdown(texts["justification"])
 
 with col2:
     fig, ax = plt.subplots(figsize=(8, 6)) 
@@ -54,25 +80,22 @@ with col2:
     t_range = np.linspace(-40, 140, 150)
     pts = [get_lsb_geometry(tr, mode) for tr in t_range]
     sy, sz = zip(*pts)
-    ax.plot(sy, sz, 'g-', lw=4, label="Surface")
+    ax.plot(sy, sz, 'g-', lw=4)
     
     ty_range = np.linspace(-10, 160, 100)
     tz_range = [get_target_curve(ty, mode) for ty in ty_range]
-    ax.plot(ty_range, tz_range, 'k--', alpha=0.3, label="Fond")
+    ax.plot(ty_range, tz_range, 'k--', alpha=0.3)
 
     # Sonde & Faisceau
     color_b = "red" if amplitude > 0.6 else "orange"
     ax.add_patch(plt.Rectangle((y_p-10, z_p-8), 20, 3, color='blue', alpha=0.8))
     ax.fill([y_p, projected_y-8, projected_y+8], [z_p, target_z, target_z], color=color_b, alpha=0.2)
     ax.plot([y_p, projected_y], [z_p, target_z], color=color_b, ls='--')
+    ax.add_patch(plt.Rectangle((target_y-2, target_z-1.5), 4, 3, color='black'))
 
-    # EDM
-    ax.add_patch(plt.Rectangle((target_y-2, target_z-1), 4, 2, color='black'))
-
-    # --- CADRAGE DE SÉCURITÉ ---
+    # Cadrage Fixe
     ax.set_aspect('equal')
-    ax.set_xlim(-10, 160) # Fenêtre Y fixe
-    ax.set_ylim(360, 250) # Fenêtre Z fixe (Fond en bas, Surface en haut)
+    ax.set_xlim(-10, 160)
+    ax.set_ylim(360, 250) # Fond en bas
     ax.grid(True, alpha=0.1)
-    
     st.pyplot(fig)
